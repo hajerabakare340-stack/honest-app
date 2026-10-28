@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="om">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Honest Market</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:var(--tg-theme-bg-color,#fff);--tx:var(--tg-theme-text-color,#1a1a1a);--hint:var(--tg-theme-hint-color,#6b7280);--btn:var(--tg-theme-button-color,#0f766e);--btx:var(--tg-theme-button-text-color,#fff);--card:var(--tg-theme-secondary-bg-color,#f1f5f4)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,sans-serif;padding:12px 12px 80px}
+h2{font-size:15px;margin:18px 0 8px}.card{background:var(--card);border-radius:10px;padding:12px;margin-bottom:8px}
+.bal{font-size:34px;font-weight:700;letter-spacing:-.02em}.hint{color:var(--hint);font-size:13px}
+input,textarea,select{width:100%;padding:10px;margin:4px 0;border:1px solid var(--hint);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
+button{background:var(--btn);color:var(--btx);border:0;border-radius:8px;padding:10px 14px;font:inherit;font-weight:600;margin:4px 4px 0 0}
+button.g{background:transparent;color:var(--btn);border:1px solid var(--btn)}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;margin:0;border-radius:0;background:none;color:var(--hint)}nav button.on{color:var(--btn)}
+.row{display:flex;justify-content:space-between;gap:8px}.pos{color:#15803d}.neg{color:#b91c1c}
+</style>
+</head>
+<body>
+<div id="v"></div>
+<nav id="nav"></nav>
+<script>
+const tg = Telegram.WebApp; tg.ready(); tg.expand();
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $ = id => document.getElementById(id);
+let me, tab = "tasks";
+async function api(p, m = "GET", b) {
+  const r = await fetch("/api" + p, {method: m, headers: {"x-init": tg.initData, "Content-Type": "application/json"}, body: b ? JSON.stringify(b) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { tg.showAlert(typeof j.detail === "string" ? j.detail : "Hanqinni jira. Galmee sirreessi."); throw 0; }
+  return j;
+}
+const act = (p, m = "POST", b) => async () => { await api(p, m, b); await load(); };
+const val = id => $(id).value.trim();
+const names = {tasks: "Hojii", wallet: "Waltajjii", profile: "Profile", admin: "Admin"};
+
+async function load() {
+  me = await api("/me");
+  $("nav").innerHTML = Object.keys(names).filter(k => k !== "admin" || me.is_admin)
+    .map(k => `<button class="${k === tab ? "on" : ""}" onclick="tab='${k}';load()">${names[k]}</button>`).join("");
+  $("v").innerHTML = await views[tab]();
+}
+
+const views = {
+  async tasks() {
+    const ts = await api("/tasks");
+    const mine = ts.filter(t => t.client === me.id || t.worker === me.id);
+    const open = ts.filter(t => t.status === "open" && t.client !== me.id);
+    const card = t => {
+      let a = "";
+      if (t.client === me.id && t.status === "open") a = `<button class="g" onclick="act('/tasks/${t.id}/cancel')()">Haqi</button>`;
+      if (t.client === me.id && t.status === "submitted") a = `<button onclick="act('/tasks/${t.id}/approve')()">Mirkaneessi fi kaffali</button>`;
+      if (t.worker === me.id && t.status === "in_progress") a = `<textarea id="r${t.id}" placeholder="Bu'aa hojii asitti galchi"></textarea><button onclick="submitT(${t.id})">Ergi</button>`;
+      if (t.status === "open" && t.client !== me.id) a = `<button onclick="act('/tasks/${t.id}/accept')()">Fudhadhu</button>`;
+      const res = t.result && (t.client === me.id || t.worker === me.id) ? `<div class="hint">Bu'aa: ${esc(t.result)}</div>` : "";
+      return `<div class="card"><div class="row"><b>${esc(t.title)}</b><b>${t.price} ETB</b></div>
+        <div>${esc(t.descr)}</div>${res}<div class="hint">${esc(t.status)} · ${esc(t.client_name)}</div>${a}</div>`;
+    };
+    return `<div class="card"><div class="hint">Balance</div><div class="bal">${me.balance} ETB</div></div>
+      <h2>Hojii haaraa kaa'i</h2><div class="card">
+      <input id="tt" placeholder="Mata duree" maxlength="80"><textarea id="td" rows="3" placeholder="Ibsa hojii"></textarea>
+      <input id="tp" type="number" min="10" placeholder="Gatii (ETB)"><button onclick="newT()">Kaa'i</button>
+      <div class="hint">Gatiin balance kee irraa kuufama (escrow). Hojjetaan xumuree ati mirkaneessite qofa kaffalama.</div></div>
+      <h2>Hojii banaa</h2>${open.map(card).join("") || '<div class="hint">Ammaaf hojiin banaa hin jiru.</div>'}
+      <h2>Hojii koo</h2>${mine.map(card).join("") || '<div class="hint">Hojii hin qabdu.</div>'}`;
+  },
+  async wallet() {
+    const row = l => `<div class="row"><span>${esc(l.kind)}</span><span class="${l.amount > 0 ? "pos" : "neg"}">${l.amount > 0 ? "+" : ""}${l.amount}</span></div>`;
+    return `<div class="card"><div class="hint">Balance</div><div class="bal">${me.balance} ETB</div></div>
+      <h2>Deposit</h2><div class="card"><div class="hint">Duraan ergi: ${esc(me.pay_info)}</div>
+      <input id="da" type="number" min="1" placeholder="Hanga ergite (ETB)"><input id="dr" placeholder="Lakkoofsa transaction (reference)">
+      <button onclick="dep()">Galchi</button><div class="hint">Admin yoo mirkaneesse balance kee irratti dabalama.</div><button class="g" onclick="tg.openTelegramLink('https://t.me/${esc(me.support)}')">Admi
